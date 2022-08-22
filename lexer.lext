@@ -1,0 +1,151 @@
+%option c++
+%{
+  #include "assembler.h"
+  #include <string>
+  #include <iostream>
+  #include <cstring>
+  #include "directives.h"
+  #include "utility.h"
+  #include "instr.h"
+  #include "emulator.h"
+
+
+  using namespace std;
+  int ln = 0;
+  string curr_sec = "";
+  void yyerror(char *s);
+%}
+
+string "\"".+"\""
+label ^[a-zA-Z_0-9]+:
+symbol ([a-zA-Z_.]{1}[a-zA-Z0-9_.$]*)
+literal (("-")?[1-9]{1}[0-9]*|"0"[oO]{1}[0-7]+|"0"[xX]{1}[0-9abcdefABCDEF]+|"0"[bB]{1}[0-1]+|"0")
+literal_value "$"(("-")?[1-9]{1}[0-9]*|"0"[oO]{1}[0-7]+|"0"[xX]{1}[0-9abcdefABCDEF]+|"0"[bB]{1}[0-1]+|"0")
+symbol_value ("$"[a-zA-Z_.]{1}[a-zA-Z0-9_.$]*)
+symbol_pc_rel ("%"[a-zA-Z_.]{1}[a-zA-Z0-9_.$]*)
+jmp_reg_dir ("\*r"[0-7])
+jmp_literal "\*"(("-")?[1-9]{1}[0-9]*|"0"[oO]{1}[0-7]+|"0"[xX]{1}[0-9abcdefABCDEF]+|"0"[bB]{1}[0-1]+|"0")
+jmp_symbol ("\*"[a-zA-Z_.]{1}[a-zA-Z0-9_.$]*)
+
+
+/*text ".section .text"
+data ".section .data"
+bss ".section .bss"*/
+
+/* DIRECTIVES*/
+global ".global"
+section ".section"
+extern ".extern"
+word ".word"
+skip ".skip"
+ascii ".ascii"
+equ ".equ"
+end ".end"
+
+/*INSTRUCTIONS*/
+halt "halt"
+int "int"
+iret "iret"
+call "call"
+ret "ret"
+jmp "jmp"
+jeq "jeq"
+jne "jne"
+jgt "jgt"
+push "push"
+pop "pop"
+xchg "xchg"
+add "add"
+sub "sub"
+mul "mul"
+div "div"
+cmp "cmp"
+not "not"
+and "and"
+or "or"
+xor "xor"
+test "test"
+shl "shl"
+shr "shr"
+ldr "ldr"
+str "str"
+
+%%
+{global} {return DIR_GLOBAL;}
+{section} { curr_sec = "not_empty";return DIR_SECTION;}
+{extern} { return DIR_EXTERN;}
+{word} {if ( curr_sec == ""){
+          yyerror(yytext);
+          fprintf(stderr, "Using .word outside sections");
+          return -1;
+        }
+        return DIR_WORD;}
+{skip} {if ( curr_sec == ""){
+          yyerror(yytext);
+          fprintf(stderr, "Using .skip outside sections");
+          return -1;
+        }
+        return DIR_SKIP;}
+{ascii} {if ( curr_sec == ""){
+          yyerror(yytext);
+          fprintf(stderr, "Using .ascii outside sections");
+          return -1;
+        }
+        return DIR_ASCII;}
+{equ} {return DIR_EQU;}
+{end} {return DIR_END;}
+
+r[0-7] { return REG_RX;}
+"pc" { return REG_SP;}
+"sp" { return REG_PC;}
+"psw" { return REG_PSW;}
+
+({halt}|{iret}|{ret}) {return INST_NOOP;}
+({int}|{push}|{pop}|{not}) {return INST_ONE_REG_DIR;}
+({jmp}|{jeq}|{jne}|{jgt}|{call}) {return INST_JUMP;}
+({add}|{sub}|{mul}|{div}|{cmp}|{xchg}|{and}|{or}|{xor}|{test}|{shl}|{shr}) { return INST_TWO_REG_DIR;}
+({ldr}|{str}) {return INST_LOAD_STORE;}
+
+
+{literal_value} {return ARG_LITERAL_VALUE;}
+{symbol_value} { return ARG_SYMBOL_VALUE;}
+{symbol_pc_rel} {return ARG_SYMBOL_MEM_PCREL;}
+
+{label} { return LABEL;}
+{literal} { return LITERAL; }
+{symbol} { return SYMBOL; }
+
+{jmp_reg_dir} { return JMP_ARG_REG_DIR;} 
+{jmp_literal} { return JMP_ARG_LITERAL_MEM;}
+{jmp_symbol} { return JMP_ARG_SYMBOL_MEM;}
+
+{string} { return 0;}
+
+[\[] { return OPEN_PARENTHESIS;}
+[\]] { return CLOSE_PARENTHESIS;}
+"\*\[" { return OPEN_PARENTHESIS_JMP;}
+
+[\+] { return PLUS;}
+[\-] { return MINUS;}
+
+".intel_syntax noprefix" {}
+
+#.*\n {}
+[ \t,;] { return ESCAPE_SPACES;}
+\n {ln++; return NEW_LINE;}
+<<EOF>> { return END_FILE; }
+
+.                 {ln++;
+                   yyerror(yytext);
+
+                   return -1;
+                  }
+%%
+
+void yyerror(char *s) {
+    fprintf(stderr, "Lexer error at line %d: %s\n", ln, s);
+  }
+
+int yyFlexLexer::yywrap(){
+  return 1;
+}
