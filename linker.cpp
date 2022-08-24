@@ -159,9 +159,9 @@ void Linker::linkFiles(){
   }
 
   for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
-    if ( sh_entry->symtbndx > 0 && sh_entry->symtbndx != 65535){
+    if ( sh_entry->symtbndx > 0 && sh_entry->symtbndx != 65535 && stringExistsInMap(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name, Linker::sections_place) == 0){
       
-      Linker::sections_place.insert(pair<string, Word>(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name, 0));
+      Linker::sections_place.insert(pair<string, Word>(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name, -1));
     }
   }
 
@@ -289,7 +289,6 @@ void Linker::loadFiles(vector<string> files){
     Linker::fixStrings(&elf_file);
    
     Linker::elf_files.push_back(pair<string, ELF16_File>(files[i], elf_file));
-    cout << "A" << Linker::elf_files.begin()->first << endl;
     fclose(fin);
 
    
@@ -375,11 +374,24 @@ void Linker::relocateSymbols(){
 void Linker::placeSections(){
 
   ELF16_File* base_elf_file = &Linker::elf_files.begin()->second;
-  Word next_section_place = 0;
+  Word next_section_place = placePredefinedSections();
   
   for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
     if ( sh_entry->symtbndx > 0 && sh_entry->symtbndx != 65535){
 
+      if ( Linker::sections_place.find(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name)->second != 65535){
+
+        findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->value = Linker::sections_place.find(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name)->second;
+
+        for ( vector<ELF_SYMT_Entry>::iterator section_symbols = base_elf_file->symtbl.begin(); section_symbols != base_elf_file->symtbl.end(); section_symbols++){
+
+          if ( section_symbols->shndx > 0 && section_symbols->shndx == sh_entry->symtbndx && section_symbols->symndx != sh_entry->symtbndx){
+            section_symbols->value += Linker::sections_place.find(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name)->second;
+          }
+
+        }
+        continue;
+      } 
       Linker::sections_place.find(findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->sym_name)->second = next_section_place;
       findSymbolInSymTBLIndex(sh_entry->symtbndx, &base_elf_file->symtbl)->value = next_section_place;
       for ( vector<ELF_SYMT_Entry>::iterator section_symbols = base_elf_file->symtbl.begin(); section_symbols != base_elf_file->symtbl.end(); section_symbols++){
@@ -390,34 +402,69 @@ void Linker::placeSections(){
       next_section_place += sh_entry->size;
     }
   }
-
+  
 }
 
 void Linker::createHex(ofstream& fout, ELF16_File* elf_file){
 
-  int binary_size = 0;
-  for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
-    binary_size += section->second.size();
+  bool bad_placing = true;
+
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+    if ( placed_sections->second == 0) bad_placing = false;
   }
 
-  vector<Byte> content = vector<Byte>(binary_size, 0);
+  if ( bad_placing){
+    cerr << "No section placed at memory start(must be ivt)" << endl;
+    exit(-1);
+  }
 
-  Word next_place = 0;
-  int counter = 0;
-  while( counter != Linker::sections_place.size()){
-    for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
-      if ( next_place == placed_sections->second){
-        vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
-        for ( int i = placed_sections->second; i < read_vector.size() + placed_sections->second; i++){
-          content[i] = read_vector[i - placed_sections->second];
-        }
-        counter++;
-        next_place += read_vector.size();
-      }
-        
+  ELF16_File* base_elf_file = &Linker::elf_files.begin()->second;
 
+  int size = 0;
+  
+  string highest_section = "";
+  Word highest_section_place = 0;
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+    if ( highest_section_place < placed_sections->second){
+      highest_section_place = placed_sections->second;
+      highest_section = placed_sections->first;
     }
   }
+  /*int binary_size = 0;
+  for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
+    binary_size += section->second.size();
+  }*/
+  for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
+    if ( sh_entry->symtbndx == findSymbolInSymTBL(highest_section, &base_elf_file->symtbl)->symndx){
+      size = Linker::sections_place.find(highest_section)->second + sh_entry->size;
+    }
+  }
+
+  vector<Byte> content = vector<Byte>(size, 0);
+  vector<bool> place_taken = vector<bool>(size, false);
+
+  Word next_place = 0;
+  
+ 
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+   
+    vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
+    for ( int i = placed_sections->second; i < read_vector.size() + placed_sections->second; i++){
+      if ( place_taken[i] == false){
+         content[i] = read_vector[i - placed_sections->second];
+         place_taken[i] = true;
+      }
+      else{
+        cerr << "Sections are overlaping" << endl;
+        exit(-1);
+      }
+     
+    }
+    
+    next_place += read_vector.size();
+
+  }
+ 
   
   
   
@@ -437,7 +484,8 @@ void Linker::createHex(ofstream& fout, ELF16_File* elf_file){
 }
 
 void Linker::createHexBinary(FILE* fout,ELF16_File* elf_file){
-  int binary_size = 0;
+  
+  /*int binary_size = 0;
   for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
     binary_size += section->second.size();
   }
@@ -454,11 +502,84 @@ void Linker::createHexBinary(FILE* fout,ELF16_File* elf_file){
         content[i] = read_vector[i - placed_sections->second];
       }
 
+  }*/
+
+  bool bad_placing = true;
+
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+    if ( placed_sections->second == 0) bad_placing = false;
   }
-  Word size = content.size();
-  fwrite(&size, sizeof(Word), 1, fout);
+
+  if ( bad_placing){
+    cerr << "No section placed at memory start(must be ivt)" << endl;
+    exit(-1);
+  }
+
+  ELF16_File* base_elf_file = &Linker::elf_files.begin()->second;
+
+  int size = 0;
+  
+  string highest_section = "";
+  Word highest_section_place = 0;
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+    if ( highest_section_place < placed_sections->second){
+      highest_section_place = placed_sections->second;
+      highest_section = placed_sections->first;
+    }
+  }
+  /*int binary_size = 0;
+  for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
+    binary_size += section->second.size();
+  }*/
+  for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
+    if ( sh_entry->symtbndx == findSymbolInSymTBL(highest_section, &base_elf_file->symtbl)->symndx){
+      size = Linker::sections_place.find(highest_section)->second + sh_entry->size;
+    }
+  }
+
+  vector<Byte> content = vector<Byte>(size, 0);
+
+
+  Word next_place = 0;
+  
+ 
+  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+   
+    vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
+    for ( int i = placed_sections->second; i < read_vector.size() + placed_sections->second; i++){
+      content[i] = read_vector[i - placed_sections->second];
+    }
+    
+    next_place += read_vector.size();
+
+  }
+ 
+
+  Word size_bin = content.size();
+  fwrite(&size_bin, sizeof(Word), 1, fout);
   for ( int i = 0; i < content.size(); i++){
     fwrite(&content[i], sizeof(Byte), 1, fout);
   }
+  
+}
 
+Word Linker::placePredefinedSections(){
+
+  ELF16_File* base_elf_file = &Linker::elf_files.begin()->second;
+
+  Word next_section_place = 0;
+
+  Word highest_start = 0;
+  for ( map<string, Word>::iterator it = Linker::sections_place.begin(); it != Linker::sections_place.end(); it++ ){
+    if ( highest_start <= it->second && it->second != 65535) {
+      highest_start = it->second;
+      Word sec_symtbl_index = findSymbolInSymTBL(it->first, &base_elf_file->symtbl)->symndx;
+      for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
+        if ( sh_entry->symtbndx == sec_symtbl_index) next_section_place = highest_start + sh_entry->size;
+      }
+      
+    }
+  }
+  
+  return next_section_place;
 }

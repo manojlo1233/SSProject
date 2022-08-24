@@ -9,14 +9,19 @@
 #include <chrono>
 #include <unistd.h>
 #include <atomic>
+#include <termios.h>
 
 using namespace std;
 
 #define CODE_STARTING_POINT 0x10
-#define ISR_ERROR_STARTING_CODE 0x02
+#define ISR_ERROR_STARTING_CODE 0x01
+
+#define ISR_TERMINAL_IVT 0x03
+#define TERM_OUT 0xFF00
+#define TERM_IN 0xFF02
 
 #define TIMER_CFG 0xFF10
-#define ISR_TIMER_IVT 0x04
+#define ISR_TIMER_IVT 0x02
 #define SP 6
 #define PC 7
 #define PSW 8
@@ -43,11 +48,21 @@ public:
   static int handle_op(Byte op_code);
 
   static thread timer_thread;
-  static bool timer_finished;
+  static atomic<bool> timer_finished;
   static atomic<bool> timer_set;
 
-  static void callTimer();
+  static thread term_thread;
+  static atomic<bool> term_finished;
+  static atomic<bool> term_set;
 
+  static termios terminal_handler;
+  static termios terminal_reset;
+
+  static void initialize_terminal();
+  static void terminal();
+  static void callTerm();
+
+  static void callTimer();
   static void timer();
 };
 

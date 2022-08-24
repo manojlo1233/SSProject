@@ -69,7 +69,7 @@ int main(int argc, char** argv)
 	}
 	file_output.close();
 
-	string output_file_bin = outputFile + ".o";
+	string output_file_bin = outputFile + ".bin";
 
 	FILE* fout = fopen( output_file_bin.c_str() , "w");
 	if ( fout == nullptr) cerr << "Error opening the file" << endl;

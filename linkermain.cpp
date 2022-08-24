@@ -5,6 +5,7 @@
 #include "assembler.h"
 #include "instr.h"
 #include "directives.h"
+#include <iomanip>
 
 using namespace std;
 
@@ -37,10 +38,31 @@ int main(int argc, char** argv){
         i++;
       }
       else {
-        input_files.push_back((string)argv[i]);
+        string input = (string)argv[i];
+        bool place = false;
+        bool count = false;
+        int counter = 0;
+        for ( int j = 0; j < input.size(); j++){
+          if ( input[j] == '='){
+            count = true;
+            continue;
+          }
+          if ( input[j] == '@') {
+            place = true;
+            break;
+          }
+          if (count) counter++;
+        }
+        if ( place == false) input_files.push_back((string)argv[i]);
+        else {
+          string section = input.substr(7,counter);
+          Word sec_pl = stoi(input.substr(7 + counter + 3), nullptr, 16);
+          Linker::sections_place.insert(pair<string, Word>(section, sec_pl));
+        }
       }
     }
-
+    
+  
     Linker::loadFiles(input_files);
 
     Linker::checkErrors();
@@ -50,9 +72,8 @@ int main(int argc, char** argv){
     Linker::placeSections();
 
     Linker::relocateSymbols();
-
-
-    string output_file_hex = output_file + ".hex";
+   
+    string output_file_hex = output_file;
 
     ofstream file_output_hex(output_file_hex);
     if ( file_output_hex.is_open()){
@@ -69,11 +90,12 @@ int main(int argc, char** argv){
       /*for ( map<string,ELF16_File>::iterator it= Linker::elf_files.begin(); it != Linker::elf_files.end(); it++){
         createTXTFileUT(file_output, it->second);
       }*/
+       
       createTXTFileUT(file_output, Linker::elf_files.begin()->second);
     }
     file_output.close();
 
-    string output_file_bin = output_file + ".hex.bin";
+    string output_file_bin = output_file + ".bin";
 
     FILE* fout = fopen( output_file_bin.c_str() , "w");
     if ( fout == nullptr) cerr << "Error opening the file" << endl;
@@ -92,6 +114,13 @@ int main(int argc, char** argv){
         i++;
       }
       else {
+        string input = (string)argv[i];
+        for ( int j = 0; j < input.size(); j++){
+          if ( input[j] == '@'){
+            cerr << "Cannot include both place and relocateable option" << endl;
+            exit(-1);
+          }
+        }
         input_files.push_back((string)argv[i]);
       }
     }
@@ -107,11 +136,12 @@ int main(int argc, char** argv){
       /*for ( map<string,ELF16_File>::iterator it= Linker::elf_files.begin(); it != Linker::elf_files.end(); it++){
         createTXTFileUT(file_output, it->second);
       }*/
+     
       createTXTFileUT(file_output, Linker::elf_files.begin()->second);
     }
     file_output.close();
 
-    string output_file_bin = output_file + ".o";
+    string output_file_bin = output_file + ".bin";
 
     FILE* fout = fopen( output_file_bin.c_str() , "w");
     if ( fout == nullptr) cerr << "Error opening the file" << endl;
@@ -122,8 +152,6 @@ int main(int argc, char** argv){
 
 
   }
-  
-  
 
   cout << "Linker finished succesfully" << endl;
   return 0;

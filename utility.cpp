@@ -14,9 +14,9 @@ int stringExistsInVector(string str, vector<string> vec){
 
 }
 
-int stringExistsInMap(string str, map<string,int> sec_map){
+int stringExistsInMap(string str, map<string,Word> sec_map){
 
-    map<string,int>::iterator iter;
+    map<string,Word>::iterator iter;
 
     for ( iter = sec_map.begin(); iter!= sec_map.end(); iter++ ){
         if ( str == iter->first) return 1;
@@ -24,6 +24,16 @@ int stringExistsInMap(string str, map<string,int> sec_map){
 
     return 0;
 
+}
+
+int stringExistsInMap(string str, map<string,int> sec_map){
+  map<string,int>::iterator iter;
+
+    for ( iter = sec_map.begin(); iter!= sec_map.end(); iter++ ){
+        if ( str == iter->first) return 1;
+    }   
+
+    return 0;
 }
 
 ELF_SYMT_Entry* findSymbolInSymTBL(string label, vector<ELF_SYMT_Entry>* symtbl){

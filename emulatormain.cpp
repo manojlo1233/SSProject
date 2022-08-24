@@ -13,6 +13,8 @@ int main(int argc, char** argv){
   }
 
   Emulator::load_file(input_file);
+
+  Emulator::initialize_terminal();
   
   Emulator::emulate_code();
 

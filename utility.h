@@ -26,6 +26,8 @@ using namespace std;
 
 int stringExistsInVector(string str, vector<string> vec);
 
+int stringExistsInMap(string str, map<string,Word> sec_map);
+
 int stringExistsInMap(string str, map<string,int> sec_map);
 
 ELF_SYMT_Entry* findSymbolInSymTBL(string label, vector<ELF_SYMT_Entry>* symtbl);

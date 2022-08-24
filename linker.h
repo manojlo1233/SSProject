@@ -18,6 +18,8 @@ class Linker{
   static void placeSections();
   static void createHex(ofstream& fout,ELF16_File* elf_file);
   static void createHexBinary(FILE* fout,ELF16_File* elf_file);
+
+  static Word placePredefinedSections();
 };
 
 #endif
