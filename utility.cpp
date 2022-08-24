@@ -159,12 +159,15 @@ string getTypeU(ELF_SYM_Type type){
   {
   case SYM_TYPE_NOTYPE:
     return "NOTYP";
-    break;
   
   case SYM_TYPE_SECTION:
     return "SCTN";
-    break;
+
+  case SYM_TYPE_ABS:
+    return "*ABS*";
   }
+  
+  
   return "";
 }
 

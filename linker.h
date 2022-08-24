@@ -7,7 +7,7 @@
 class Linker{
   public:
 
-  static map<string, ELF16_File> elf_files;
+  static vector<pair<string, ELF16_File>> elf_files;
   static map<string, Word> sections_place;
 
   static void linkFiles();

@@ -130,7 +130,9 @@ r[0-7] { return REG_RX;}
 
 ".intel_syntax noprefix" {}
 
-#.*\n {}
+"#".* { return OPEN_COMMENT;}
+
+
 [ \t,;] { return ESCAPE_SPACES;}
 \n {ln++; return NEW_LINE;}
 <<EOF>> { return END_FILE; }

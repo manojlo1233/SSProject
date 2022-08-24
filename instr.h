@@ -42,7 +42,8 @@ enum ARG_VALUE_TYPE: Byte{
     ADDR_REG_DIR_POM = 0x05,
     ADDR_REG_INDIR = 0x02,
     ADDR_REG_INDIR_POM = 0x03,
-    ADDR_MEM = 0x04
+    ADDR_MEM = 0x04,
+    ADDR_PC_REL = 0x06
   };
 
   enum UPDATE_REG_TYPE{

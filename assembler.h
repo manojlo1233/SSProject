@@ -35,6 +35,7 @@ public:
   
   static vector<string> extern_symbols;
   static vector<string> global_symbols;
+  static vector<string> abs_symbols;
 
   static void writeToSectionBinary(Word value);
   static void skipIntoSectionBinary(Word value);

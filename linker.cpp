@@ -8,13 +8,14 @@
 
 using namespace std;
 
-map<string,ELF16_File> Linker::elf_files = map<string,ELF16_File>();
+vector<pair<string,ELF16_File>> Linker::elf_files = vector<pair<string,ELF16_File>>();
 map<string, Word> Linker::sections_place = map<string,Word>();
 
 void Linker::linkFiles(){
 
   ELF16_File* base_elf_file = &(Linker::elf_files.begin()->second);
-  map<string, ELF16_File>::iterator it = Linker::elf_files.begin();
+  
+  vector<pair<string,ELF16_File>>::iterator it = Linker::elf_files.begin();
   it++;
   // Sections
   for ( ; it != Linker::elf_files.end(); it++){ // za sve elf_datoteke
@@ -180,7 +181,7 @@ void Linker::loadFiles(vector<string> files){
     //loading header
     fread(&header, sizeof(ELF_Header), 1, fin);
 
-    cout << header.sh_num_entries << endl;
+    
     vector<ELF_SHT_Entry> sh_table = vector<ELF_SHT_Entry>(); // SH_TABLE
    
 
@@ -286,9 +287,9 @@ void Linker::loadFiles(vector<string> files){
     elf_file.symtbl = symtbl;
 
     Linker::fixStrings(&elf_file);
-    
-    Linker::elf_files.insert(pair<string, ELF16_File>(files[i], elf_file));
-
+   
+    Linker::elf_files.push_back(pair<string, ELF16_File>(files[i], elf_file));
+    cout << "A" << Linker::elf_files.begin()->first << endl;
     fclose(fin);
 
    
@@ -321,7 +322,7 @@ void Linker::checkErrors(){
   vector<string> extern_symbols;
   vector<string> global_symbols;
 
-  for ( map<string, ELF16_File>::iterator it= Linker::elf_files.begin(); it != Linker::elf_files.end(); it++){
+  for ( vector<pair<string,ELF16_File>>::iterator it= Linker::elf_files.begin(); it != Linker::elf_files.end(); it++){
     for ( int j = 0; j < it->second.symtbl.size(); j++){
       if ( it->second.symtbl[j].info == SYM_INFO_GLOBAL && it->second.symtbl[j].type == SYM_TYPE_NOTYPE && it->second.symtbl[j].shndx != 0){
         if ( stringExistsInVector(it->second.symtbl[j].sym_name, global_symbols) == 0) global_symbols.push_back(it->second.symtbl[j].sym_name);
@@ -375,6 +376,7 @@ void Linker::placeSections(){
 
   ELF16_File* base_elf_file = &Linker::elf_files.begin()->second;
   Word next_section_place = 0;
+  
   for ( vector<ELF_SHT_Entry>::iterator sh_entry = base_elf_file->shtable.begin(); sh_entry != base_elf_file->shtable.end(); sh_entry++){
     if ( sh_entry->symtbndx > 0 && sh_entry->symtbndx != 65535){
 
@@ -393,16 +395,31 @@ void Linker::placeSections(){
 
 void Linker::createHex(ofstream& fout, ELF16_File* elf_file){
 
-  vector<Byte> content = vector<Byte>();
-
-  for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
-    
-    vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
-    for ( int i = 0; i < read_vector.size(); i++){
-      content.push_back(read_vector[i]);
-    }
-
+  int binary_size = 0;
+  for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
+    binary_size += section->second.size();
   }
+
+  vector<Byte> content = vector<Byte>(binary_size, 0);
+
+  Word next_place = 0;
+  int counter = 0;
+  while( counter != Linker::sections_place.size()){
+    for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
+      if ( next_place == placed_sections->second){
+        vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
+        for ( int i = placed_sections->second; i < read_vector.size() + placed_sections->second; i++){
+          content[i] = read_vector[i - placed_sections->second];
+        }
+        counter++;
+        next_place += read_vector.size();
+      }
+        
+
+    }
+  }
+  
+  
   
   int next_address = 0;
   fout << "---------------- Memory content ----------------" << endl;
@@ -420,14 +437,22 @@ void Linker::createHex(ofstream& fout, ELF16_File* elf_file){
 }
 
 void Linker::createHexBinary(FILE* fout,ELF16_File* elf_file){
-  vector<Byte> content = vector<Byte>();
+  int binary_size = 0;
+  for ( map<string, vector<Byte>>::iterator section = elf_file->sections_binary.begin(); section != elf_file->sections_binary.end(); section++ ){
+    binary_size += section->second.size();
+  }
 
+  vector<Byte> content = vector<Byte>(binary_size, 0);
+
+  Word next_place = 0;
+  
+  
   for ( map<string, Word>::iterator placed_sections = Linker::sections_place.begin(); placed_sections != Linker::sections_place.end(); placed_sections++){
     
-    vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
-    for ( int i = 0; i < read_vector.size(); i++){
-      content.push_back(read_vector[i]);
-    }
+      vector<Byte> read_vector = elf_file->sections_binary.find(placed_sections->first)->second;
+      for ( int i = placed_sections->second; i < read_vector.size() + placed_sections->second; i++){
+        content[i] = read_vector[i - placed_sections->second];
+      }
 
   }
   Word size = content.size();

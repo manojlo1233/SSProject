@@ -15,6 +15,7 @@ ELF_FLINK_Entry* Assembler::flink_head = nullptr;
 
 vector<string> Assembler::extern_symbols = vector<string>();
 vector<string> Assembler::global_symbols = vector<string>();
+vector<string> Assembler::abs_symbols = vector<string>();
 
 map<string,int> Assembler::section_names_ndxs = map<string,int>();
 
@@ -255,6 +256,7 @@ void Assembler::writeInstrtToSectionBinary(Instruction* instr){
     }
     switch (instr->addresing)
     { 
+      case ADDR_PC_REL:
       case ADDR_IMMEDIATE:
       case ADDR_MEM:
       case ADDR_REG_INDIR_POM:
@@ -378,6 +380,7 @@ void Assembler::writeInstrtToSectionBinary(Instruction* instr){
     }
     switch (instr->addresing)
     { 
+      case ADDR_PC_REL:
       case ADDR_IMMEDIATE:
       case ADDR_MEM:
       case ADDR_REG_INDIR_POM:
@@ -743,12 +746,13 @@ string Assembler::getType(ELF_SYM_Type type){
   {
   case SYM_TYPE_NOTYPE:
     return "NOTYP";
-    break;
-  
   case SYM_TYPE_SECTION:
     return "SCTN";
-    break;
+  case SYM_TYPE_ABS:
+    return "*ABS*";
   }
+  
+
   return "";
 }
 

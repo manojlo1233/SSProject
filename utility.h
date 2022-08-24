@@ -19,6 +19,7 @@
 #define OPEN_PARENTHESIS 52
 #define CLOSE_PARENTHESIS 53
 #define OPEN_PARENTHESIS_JMP 54
+#define OPEN_COMMENT 55
 
 
 using namespace std;

@@ -27,6 +27,7 @@ enum ELF_SYM_Info: Byte{
 enum ELF_SYM_Type: Byte{
   SYM_TYPE_NOTYPE = 0,
   SYM_TYPE_SECTION,
+  SYM_TYPE_ABS,
 };
 
 enum ELF_REL_Type: Byte{

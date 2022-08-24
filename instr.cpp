@@ -139,7 +139,8 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
       
       while(1){
         ret = lex->yylex();
-        if ( ret == NEW_LINE) break;
+        if ( ret == OPEN_COMMENT ) break;
+        else if ( ret == NEW_LINE) break;
         else if ( ret == ESCAPE_SPACES || lex->YYText() == ",") continue;
         else if ( ret >= REG_RX && ret <= REG_PSW) {
           if ( instr->op1 == nullptr){
@@ -156,7 +157,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
         }
         else {
           
-          cerr << "Error in sample.s\n Bad line writing" << endl;
+          cerr << "Error in assembly code\n Bad line writing" << endl;
           exit (-1);
         }
       }
@@ -169,7 +170,8 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
     case INST_ONE_REG_DIR:{
       while(1){
         ret = lex->yylex();
-        if ( ret == NEW_LINE) break;
+        if ( ret == OPEN_COMMENT ) break;
+        else if ( ret == NEW_LINE) break;
         else if ( ret == ESCAPE_SPACES || lex->YYText() == ",") continue;
         else if ( ret >= REG_RX && ret <= REG_PSW) {
           if ( instr->op1 == nullptr){
@@ -180,7 +182,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
           else cerr << "Too many arguments for " << instr->name << " instruction" << endl;
         }
         else {
-          cerr << "Error in sample.s\n Bad line writing" << endl;
+          cerr << "Error in assembly code\n Bad line writing" << endl;
           exit (-1);
         }
       }
@@ -211,7 +213,8 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
       while(1){
         ret = lex->yylex();
         
-        if ( ret == NEW_LINE) break;
+        if ( ret == OPEN_COMMENT ) break;
+        else if ( ret == NEW_LINE) break;
         else if ( ret == ESCAPE_SPACES) continue;
         else if ( ret == ARG_LITERAL_VALUE){
           instr->op2 = new Operand();
@@ -257,7 +260,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
           instr->op2 = new Operand();
           instr->op2->operand = ((string)lex->YYText()).erase(0,1);
           instr->op2->type = OPERAND_TYPE_SYMBOL;
-          instr->addresing = ADDR_MEM;
+          instr->addresing = ADDR_PC_REL;
           instr->update = UPDATE_REG_NULL;
           instr->is_relative = true;
         }
@@ -265,6 +268,11 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
           int one_operand = 1;
           while(ret != NEW_LINE){
             ret = lex->yylex();
+            if ( ret == OPEN_COMMENT ){
+              while ( ret != NEW_LINE) ret = lex->yylex();
+              break;
+            }
+            else if ( ret == NEW_LINE) break;
             if ( ret == ESCAPE_SPACES) continue;
             if ( ret == PLUS) one_operand = 0;
             else if ( ret >= REG_RX && ret <= REG_PSW) {
@@ -297,7 +305,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
         }
         else {
         
-          cerr << "Error in sample.s\nBad line writing" << endl;
+          cerr << "Error in assembly code\nBad line writing" << endl;
           exit (-1);
         }
       }
@@ -312,7 +320,8 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
     while(1){
         ret = lex->yylex();
 
-        if ( ret == NEW_LINE) break;
+        if ( ret == OPEN_COMMENT ) break;
+        else if ( ret == NEW_LINE) break;
         else if ( ret == ESCAPE_SPACES) continue;
         else if ( ret == LITERAL){//
           instr->op1 = new Operand();
@@ -342,7 +351,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
           instr->op1 = new Operand();
           instr->op1->operand = ((string)lex->YYText()).erase(0,1);
           instr->op1->type = OPERAND_TYPE_SYMBOL;
-          instr->addresing = ADDR_IMMEDIATE;
+          instr->addresing = ADDR_PC_REL;
           instr->update = UPDATE_REG_NULL;
           instr->is_relative = true;
         }
@@ -398,7 +407,7 @@ void Instruction_handler::getArguements(Instruction* instr, void*l){
         }
         else {
         
-          cerr << "Error in sample.s\nBad line writing" << endl;
+          cerr << "Error in assembly code\nBad line writing" << endl;
           exit (-1);
         }
       }
@@ -457,10 +466,14 @@ Word Instruction_handler::handleInstrSymbol(string symbol, Instruction* instr){
    
     ELF_SYMT_Entry* sym_entry = nullptr;
     if ( (sym_entry = findSymbolInSymTBL(symbol, &Assembler::elf_file.symtbl)) != nullptr){
-       if ( instr->is_relative && sym_entry->shndx == findSymbolInSymTBL(Assembler::current_section,&Assembler::elf_file.symtbl)->symndx){
-          Word offset =  sym_entry->value - (Assembler::location_counter + 5) ;
-          return offset;
-        }
+      if ( stringExistsInVector(sym_entry->sym_name, Assembler::abs_symbols) == 1){
+        return sym_entry->value;
+      }
+      if ( instr->is_relative && sym_entry->shndx == findSymbolInSymTBL(Assembler::current_section,&Assembler::elf_file.symtbl)->symndx){
+        Word offset =  sym_entry->value - (Assembler::location_counter + 5) ;
+        return offset;
+      }
+      
       if ( sym_entry->info == SYM_INFO_GLOBAL){
         
         ELF_RELT_Entry rel_entry = ELF_RELT_Entry();

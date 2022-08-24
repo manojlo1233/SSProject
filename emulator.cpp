@@ -2,10 +2,13 @@
 #include "instr.h"
 #include <iomanip>
 
-vector<signed short> Emulator::program_regs = vector<signed short>(9, 0);
+using namespace std::literals::chrono_literals;
+vector<Word> Emulator::program_regs = vector<Word>(9, 0);
 vector<Byte> Emulator::memory = vector<Byte>(2<<16, 0);
 Word Emulator::code_size = 0;
-vector<Byte> Emulator::stack = vector<Byte>();
+thread Emulator::timer_thread = thread();
+bool Emulator::timer_finished = false;
+atomic<bool> Emulator::timer_set = ATOMIC_VAR_INIT(false);
 
 void Emulator::load_file(string input_file){
 
@@ -18,25 +21,118 @@ void Emulator::load_file(string input_file){
   
   fread(&Emulator::code_size, sizeof(Word), 1, fin);
   Byte byte;
-  for ( int i = CODE_STARTING_POINT; i < code_size + CODE_STARTING_POINT; i++){
+  for ( int i = 0; i < code_size; i++){
     fread(&byte, sizeof(Byte), 1, fin);
     Emulator::memory[i] = byte;
   }
-
-  program_regs[PC] = CODE_STARTING_POINT;
+  Byte pc_low = memory[0x00];
+  Byte pc_high = memory[0x01];
+  program_regs[PC] = ((Word)pc_high << 8) | pc_low;
 
 }
 
 void Emulator::emulate_code(){
 
-  Word op_code;
+  //Emulator::timer_thread = thread(Emulator::timer);
 
+  Word op_code;
+ 
   while(1){
+     /*if ( Emulator::timer_set) {
+      Emulator::callTimer();
+      Emulator::timer_set = false;
+      
+    }*/
+    //std::this_thread::sleep_for(0.5s);
+    cout << "PC: " << std::setbase(16) << program_regs[PC]<< endl;
     op_code = memory[program_regs[PC]++];
+    cout << "OP_CODE: " << std::setbase(16) << op_code<< endl;
+   
     if ( handle_op(op_code) == 1) break;
-    cout << "OP_CODE" << std::setbase(16) << op_code << endl;
+    
   }
 
+  //Emulator::timer_thread.join();
+
+}
+
+void Emulator::timer(){
+  Word waiting_time;
+  Byte timer_low = memory[TIMER_CFG];
+  Byte timer_high = memory[TIMER_CFG + 1];
+  waiting_time = ((Word)timer_high) << 8 | timer_low;
+  int millisec = 0;
+  switch (waiting_time)
+  {
+  case 0x0:{
+    millisec = 500;
+    break;
+  }
+  case 0x1:{
+    millisec = 1000;
+    break;
+  }
+  case 0x2:{
+    millisec = 1500;
+    break;
+  }
+  case 0x3:{
+    millisec = 2000;
+    break;
+  }
+  case 0x4:{
+    millisec = 2500;
+    break;
+  }
+  case 0x5:{
+    millisec = 3000;
+    break;
+  }
+  case 0x6:{
+    millisec = 3500;
+    break;
+  }
+  case 0x7:{
+    millisec = 4000;
+    break;
+  }
+  }
+  while( Emulator::timer_finished == false){
+    if ( Emulator::timer_set) {
+    
+      std::this_thread::sleep_for(3s);
+    }
+    else {
+      Emulator::timer_set = true;
+     
+      std::this_thread::sleep_for(std::chrono::milliseconds(millisec));
+    }
+  }
+
+  
+ 
+}
+
+void Emulator::callTimer(){
+  if ( ((program_regs[PSW] & 0x8000) >> 15) == 0){
+    Byte psw_high = (program_regs[PSW] & 0xff00) >> 8;
+    Byte psw_low =  (program_regs[PSW] & 0x00ff);
+    memory[--program_regs[SP]] = psw_high;
+    memory[--program_regs[SP]] = psw_low;
+    Byte pc_high = (program_regs[PC] & 0xff00) >> 8;
+    Byte pc_low =  (program_regs[PC] & 0x00ff);
+    memory[--program_regs[SP]] = pc_high;
+    memory[--program_regs[SP]] = pc_low;
+    Byte low_pc_ivt = memory[ISR_TIMER_IVT];
+    Byte high_pc_ivt = memory[ISR_TIMER_IVT+1];
+    
+    program_regs[PC] = ((Word)high_pc_ivt) << 8 | low_pc_ivt;
+   
+    program_regs[PSW] = program_regs[PSW] | 0x8000;
+  } 
+  
+  
+  
 }
 
 int Emulator::handle_op(Byte op_code){
@@ -44,32 +140,60 @@ int Emulator::handle_op(Byte op_code){
   switch ((Word)op_code)
       {
       case 0x00:{
-        
+        Emulator::timer_finished = true;
         //halt
         cout << "------------------------------------------------" << endl;
         cout << "Emulated processor executed halt instruction" << endl;
-        cout << "Emulated processor state: psw=0b" << std::setbase(2) << std::setw(16) << std::setfill('0')<< program_regs[8] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r0=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[0] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r1=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[1] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r2=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[2] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r3=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[3] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r4=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[4] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r5=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[5] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r6=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[6] << endl;
-        cout << std::setw(0) << std::setfill(' ') << "r7=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[7] << endl;
+        cout << "Emulated processor state: psw=0x" << std::setbase(4) << std::setw(4) << std::setfill('0')<< program_regs[8] << endl;
+        cout << "r0=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[0] << endl;
+        cout << "r1=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[1] << endl;
+        cout << "r2=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[2] << endl;
+        cout << "r3=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[3] << endl;
+        cout << "r4=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[4] << endl;
+        cout << "r5=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[5] << endl;
+        cout << "r6=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[6] << endl;
+        cout << "r7=0x" << std::setbase(16) << std::setw(4) << std::setfill('0') << program_regs[7] << endl;
         return 1;
       }
       case 0x10:{
         // soft prekid
+        //push psw; pc<=mem16[(reg[DDDD] mod 8)*2]
+        Byte reg_descr = memory[program_regs[PC]++];
+        Byte dest = (reg_descr & 0xf0) >> 4;
+
+        Byte psw_high = (program_regs[PSW] & 0xff00) >> 8;
+        Byte psw_low =  (program_regs[PSW] & 0x00ff);
+        
+        memory[--program_regs[SP]] = psw_high;
+        memory[--program_regs[SP]] = psw_low;
+        cout << "SP" << program_regs[SP] << endl;
+        Byte high_pc = (program_regs[PC] & 0xff00) >> 8;
+        Byte low_pc =  (program_regs[PC] & 0x00ff);
+        memory[--program_regs[SP]] = high_pc;
+        memory[--program_regs[SP]] = low_pc;
+        Byte new_pc_low = memory[(program_regs[dest] % 0x8) * 2];
+        Byte new_pc_high = memory[(program_regs[dest] % 0x8) * 2 + 1];
+        cout << "VALUE" << (Word)memory[0xfefa] << endl;
+       
+        program_regs[PC] = ((Word)new_pc_high) << 8 | new_pc_low;
+        
+        
         break;
       }
       case 0x20:{
         // iret
-        if ( Emulator::stack.size() < 2){
-          // pozovi prekidnu rutinu za greske
-        }
-        program_regs[PSW] = Emulator::stack[program_regs[SP]--];
-        program_regs[PC] = Emulator::stack[program_regs[PSW]--];
+        cout << "VALUE" << memory[0xfefa] << endl;
+        Byte pc_low = Emulator::memory[program_regs[SP]++];
+        Byte pc_high = Emulator::memory[program_regs[SP]++];
+       
+        
+        Byte psw_low = Emulator::memory[program_regs[SP]++];
+        Byte psw_high = Emulator::memory[program_regs[SP]++];
+        program_regs[PSW] = ((Word)psw_high) << 8 | psw_low;
+        program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+        program_regs[PSW] = program_regs[PSW] & 0x7fff;
+        
+        
         break;
       }
       case 0x30:{
@@ -78,11 +202,25 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+           case ADDR_PC_REL:{
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Byte pc_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_high;
+            memory[--program_regs[SP]] = pc_low;
+            program_regs[PC] = program_regs[PC] + payload;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Byte pc_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_high;
+            memory[--program_regs[SP]] = pc_low;
             program_regs[PC] = payload;
             break;
           }
@@ -90,15 +228,23 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
-            program_regs[PC] = memory[payload];
+            Byte pc_stack_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_stack_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_stack_high;
+            memory[--program_regs[SP]] = pc_stack_low;
+            Byte pc_low = memory[payload];
+            Byte pc_high = memory[payload + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
           case ADDR_REG_DIR_POM:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
+            Byte pc_stack_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_stack_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_stack_high;
+            memory[--program_regs[SP]] = pc_stack_low;
             Byte src_reg = reg_descr & 0x0f;
             program_regs[PC] = program_regs[src_reg] + payload;
             break;
@@ -107,22 +253,36 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
+            Byte pc_stack_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_stack_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_stack_high;
+            memory[--program_regs[SP]] = pc_stack_low;
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = memory[program_regs[src_reg] + payload];
+            Byte pc_low = memory[program_regs[src_reg] + payload];
+            Byte pc_high = memory[program_regs[src_reg] + payload + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+            
             break;
          
           }
           case ADDR_REG_DIR:{
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
+            Byte pc_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_high;
+            memory[--program_regs[SP]] = pc_low;
             Byte src_reg = reg_descr & 0x0f;
             program_regs[PC] = program_regs[src_reg];
             break;
           }
           case ADDR_REG_INDIR:{
-            Emulator::stack[program_regs[SP]++] = program_regs[PC];
+            Byte pc_stack_high = (program_regs[PC] & 0xff00) >> 8;
+            Byte pc_stack_low = program_regs[PC] & 0x00ff;
+            memory[--program_regs[SP]] = pc_stack_high;
+            memory[--program_regs[SP]] = pc_stack_low;
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = memory[program_regs[src_reg]];
+            Byte pc_low = memory[program_regs[src_reg]];
+            Byte pc_high = memory[program_regs[src_reg] + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
         }
@@ -130,7 +290,10 @@ int Emulator::handle_op(Byte op_code){
       }
       case 0x40:{
         // ret
-        program_regs[PC] = stack[program_regs[SP]--];
+        Byte pc_low = Emulator::memory[program_regs[SP]++];
+        Byte pc_high = Emulator::memory[program_regs[SP]++];
+        program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+       
         break;
       }
       case 0x50:{
@@ -139,18 +302,28 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+          case ADDR_PC_REL:{
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            program_regs[PC] = program_regs[PC] + payload;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            program_regs[PC] = CODE_STARTING_POINT + payload;
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            program_regs[PC] = payload;
             break;
           }
           case ADDR_MEM:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            program_regs[PC] = memory[payload];
+            Byte pc_low = memory[payload];
+            Byte pc_high = memory[payload + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+          
             break;
           }
           case ADDR_REG_DIR_POM:{
@@ -166,7 +339,10 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = memory[program_regs[src_reg] + payload];
+            Byte pc_low = memory[program_regs[src_reg] + payload];
+            Byte pc_high = memory[program_regs[src_reg] + payload + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+
             break;
          
           }
@@ -177,7 +353,9 @@ int Emulator::handle_op(Byte op_code){
           }
           case ADDR_REG_INDIR:{
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = memory[program_regs[src_reg]];
+            Byte pc_low = memory[program_regs[src_reg]];
+            Byte pc_high = memory[program_regs[src_reg] + 1];
+            program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
         }
@@ -191,18 +369,28 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+          case ADDR_PC_REL:{
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            if ( condition) program_regs[PC] = program_regs[PC] + payload;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             if ( condition) program_regs[PC] = payload;
             break;
           }
           case ADDR_MEM:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            if ( condition) program_regs[PC] = memory[payload];
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Byte pc_low = memory[payload];
+            Byte pc_high = memory[payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+            
             break;
           }
           case ADDR_REG_DIR_POM:{
@@ -218,18 +406,24 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg] + payload];
+            Byte pc_low = memory[program_regs[src_reg] + payload];
+            Byte pc_high = memory[program_regs[src_reg] + payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+           
             break;
          
           }
           case ADDR_REG_DIR:{
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = program_regs[src_reg];
+            if ( condition) program_regs[PC] = program_regs[src_reg];
             break;
           }
           case ADDR_REG_INDIR:{
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg]];
+            Byte pc_low = memory[program_regs[src_reg]];
+            Byte pc_high = memory[program_regs[src_reg] + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+           
             break;
           }
         }
@@ -243,18 +437,28 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+           case ADDR_PC_REL:{
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            program_regs[PC] = program_regs[PC] + payload;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            if ( condition) program_regs[PC] = payload;
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            if ( condition) program_regs[PC] =  payload;
             break;
           }
           case ADDR_MEM:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            if ( condition) program_regs[PC] = memory[payload];
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+             Byte pc_low = memory[payload];
+            Byte pc_high = memory[payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+           
             break;
           }
           case ADDR_REG_DIR_POM:{
@@ -270,18 +474,23 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg] + payload];
+            Byte pc_low = memory[program_regs[src_reg] + payload];
+            Byte pc_high = memory[program_regs[src_reg] + payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
+          
             break;
          
           }
           case ADDR_REG_DIR:{
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[PC] = program_regs[src_reg];
+            if ( condition) program_regs[PC] = program_regs[src_reg];
             break;
           }
           case ADDR_REG_INDIR:{
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg]];
+            Byte pc_low = memory[program_regs[src_reg]];
+            Byte pc_high = memory[program_regs[src_reg] + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
         }
@@ -295,18 +504,27 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+           case ADDR_PC_REL:{
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            program_regs[PC] = program_regs[PC] + payload;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             if ( condition) program_regs[PC] = payload;
             break;
           }
           case ADDR_MEM:{
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            if ( condition) program_regs[PC] = memory[payload];
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Byte pc_low = memory[payload];
+            Byte pc_high = memory[payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
           case ADDR_REG_DIR_POM:{
@@ -322,7 +540,9 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg] + payload];
+            Byte pc_low = memory[program_regs[src_reg] + payload];
+            Byte pc_high = memory[program_regs[src_reg] + payload + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
          
           }
@@ -333,7 +553,9 @@ int Emulator::handle_op(Byte op_code){
           }
           case ADDR_REG_INDIR:{
             Byte src_reg = reg_descr & 0x0f;
-            if ( condition) program_regs[PC] = memory[program_regs[src_reg]];
+            Byte pc_low = memory[program_regs[src_reg]];
+            Byte pc_high = memory[program_regs[src_reg] + 1];
+            if ( condition) program_regs[PC] = ((Word)pc_high) << 8 | pc_low;
             break;
           }
         }
@@ -354,7 +576,9 @@ int Emulator::handle_op(Byte op_code){
         Byte reg_descr = memory[program_regs[PC]++];
         Byte dest_reg = (reg_descr & 0xf0) >> 4;
         Byte src_reg = (reg_descr & 0x0f); 
+        
         program_regs[dest_reg] = program_regs[dest_reg] + program_regs[src_reg];
+   
         break;
       }
       case 0x71:{
@@ -389,11 +613,16 @@ int Emulator::handle_op(Byte op_code){
         signed short operand2 = 0 - program_regs[src_reg];
         signed short temp = program_regs[dest_reg] + operand2;
         if ( temp == 0) program_regs[PSW] = program_regs[PSW] | 0x0001;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffe;
         if ( temp < 0) program_regs[PSW] = program_regs[PSW] | 0x0008;
+        else program_regs[PSW] = program_regs[PSW] & 0xfff7;
         if ( program_regs[dest_reg] < 0 && program_regs[src_reg] < 0 && temp > 0) program_regs[PSW] = program_regs[PSW] | 0x0002;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffd;
         if ( program_regs[dest_reg] > 0 && program_regs[src_reg] > 0 && temp < 0) program_regs[PSW] = program_regs[PSW] | 0x0002;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffd;
         unsigned int carry_check = program_regs[dest_reg] + operand2;
-        if ( carry_check & 0x10000) program_regs[PSW] | 0x0004;
+        if ( carry_check & 0x10000) program_regs[PSW] = program_regs[PSW] | 0x0004;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffb;
         break;
       }
       case 0x80:{
@@ -401,7 +630,7 @@ int Emulator::handle_op(Byte op_code){
         Byte reg_descr = memory[program_regs[PC]++];
         Byte dest_reg = (reg_descr & 0xf0) >> 4;
         Byte src_reg = (reg_descr & 0x0f); 
-        program_regs[dest_reg] = - program_regs[dest_reg];
+        program_regs[dest_reg] = ~program_regs[dest_reg];
 
         break;
       }
@@ -426,17 +655,23 @@ int Emulator::handle_op(Byte op_code){
         Byte reg_descr = memory[program_regs[PC]++];
         Byte dest_reg = (reg_descr & 0xf0) >> 4;
         Byte src_reg = (reg_descr & 0x0f); 
-        program_regs[dest_reg] = (-program_regs[dest_reg] & program_regs[src_reg]) | (program_regs[dest_reg] & -program_regs[src_reg]);
+        program_regs[dest_reg] = (~program_regs[dest_reg] & program_regs[src_reg]) | (program_regs[dest_reg] & ~program_regs[src_reg]);
         break;
       }
       case 0x84:{
-        //text
+        //test
         Byte reg_descr = memory[program_regs[PC]++];
         Byte dest_reg = (reg_descr & 0xf0) >> 4;
         Byte src_reg = (reg_descr & 0x0f); 
         signed short temp = program_regs[dest_reg] & program_regs[src_reg];
+
         if ( temp == 0) program_regs[PSW] = program_regs[PSW] | 0x0001;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffe;
+
         if ( temp < 0) program_regs[PSW] = program_regs[PSW] | 0x0008;
+        else program_regs[PSW] = program_regs[PSW] & 0xfff7;
+
+        
         break;
       }
       case 0x90:{
@@ -445,8 +680,12 @@ int Emulator::handle_op(Byte op_code){
         Byte dest_reg = (reg_descr & 0xf0) >> 4;
         Byte src_reg = (reg_descr & 0x0f); 
         program_regs[dest_reg] = program_regs[dest_reg] << program_regs[src_reg];
+
         if ( program_regs[dest_reg] == 0) program_regs[PSW] = program_regs[PSW] | 0x0001;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffe;
         if ( program_regs[dest_reg] < 0) program_regs[PSW] = program_regs[PSW] | 0x0008;
+        else program_regs[PSW] = program_regs[PSW] & 0xfff7;
+
         break;
       }
       case 0x91:{
@@ -456,16 +695,28 @@ int Emulator::handle_op(Byte op_code){
         Byte src_reg = (reg_descr & 0x0f); 
         program_regs[dest_reg] = program_regs[dest_reg] >> program_regs[src_reg];
         if ( program_regs[dest_reg] == 0) program_regs[PSW] = program_regs[PSW] | 0x0001;
+        else program_regs[PSW] = program_regs[PSW] & 0xfffe;
         if ( program_regs[dest_reg] < 0) program_regs[PSW] = program_regs[PSW] | 0x0008;
+        else program_regs[PSW] = program_regs[PSW] & 0xfff7;
         break;
       }
       case 0xA0:{
         //ldr
-        
+     
         Byte reg_descr = memory[program_regs[PC]++];
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+          case ADDR_PC_REL:{
+            Byte dest_reg = (reg_descr & 0xf0) >> 4;
+            Byte payload_low = memory[program_regs[PC]++];
+            Byte payload_high = memory[program_regs[PC]++];
+            signed short payload = ((Word)payload_high) << 8 | (Word)payload_low;
+            Byte reg_low = memory[program_regs[PC] + payload];
+            Byte reg_high = memory[program_regs[PC] + payload + 1];
+            program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
+            break;
+          }
           case ADDR_IMMEDIATE:{
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte payload_low = memory[program_regs[PC]++];
@@ -478,8 +729,11 @@ int Emulator::handle_op(Byte op_code){
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
-            Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            program_regs[dest_reg] = memory[payload];
+            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
+           
+            Byte reg_low = memory[payload];
+            Byte reg_high = memory[payload + 1];
+            program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
             break;
           }
           case ADDR_REG_DIR_POM:{
@@ -492,12 +746,32 @@ int Emulator::handle_op(Byte op_code){
             break;
           }
           case ADDR_REG_INDIR_POM:{
+            Byte update = ((Word)addr_mode) >> 4;
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[dest_reg] = memory[program_regs[src_reg] + payload];
+
+            if ( (Word)update == 0x01) program_regs[src_reg]--;
+            if ( (Word)update == 0x02) program_regs[src_reg]++;
+
+            if ( (Word)src_reg == 0x06) {
+              Byte reg_low = memory[program_regs[src_reg] + payload];
+              Byte reg_high = memory[program_regs[src_reg] + payload + 1]; 
+              program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
+            }
+            else{
+              Byte reg_low = memory[program_regs[src_reg] + payload];
+              Byte reg_high = memory[program_regs[src_reg] + payload + 1]; 
+              program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
+            }
+
+           
+
+            if ( (Word)update == 0x03) program_regs[src_reg]--;
+            if ( (Word)update == 0x04) program_regs[src_reg]++;
+
             break;
          
           }
@@ -508,9 +782,29 @@ int Emulator::handle_op(Byte op_code){
             break;
           }
           case ADDR_REG_INDIR:{
+            Byte update = ((Word)addr_mode) >> 4;
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte src_reg = reg_descr & 0x0f;
-            program_regs[dest_reg] = memory[program_regs[src_reg]];
+
+            if ( (Word)update == 0x01) program_regs[src_reg]--;
+            if ( (Word)update == 0x02) program_regs[src_reg]++;
+
+            if ( (Word)src_reg == 0x06) {
+              Byte reg_low = memory[program_regs[src_reg]++];
+              Byte reg_high = memory[program_regs[src_reg]]; 
+              program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
+            }
+            else{
+              Byte reg_low = memory[program_regs[src_reg]];
+              Byte reg_high = memory[program_regs[src_reg] + 1]; 
+              program_regs[dest_reg] = ((Word)reg_high) << 8 | reg_low;
+            }
+           
+            
+
+            if ( (Word)update == 0x03) program_regs[src_reg]--;
+            if ( (Word)update == 0x04) program_regs[src_reg]++;
+
             break;
           }
         }
@@ -523,6 +817,7 @@ int Emulator::handle_op(Byte op_code){
         Byte addr_mode = memory[program_regs[PC]++];
         switch (addr_mode & 0x0f)
         {
+          case ADDR_PC_REL:
           case ADDR_IMMEDIATE:{
            //zove se prekidna rutina za gresku
           }
@@ -531,26 +826,42 @@ int Emulator::handle_op(Byte op_code){
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Word payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            memory[payload] = program_regs[dest_reg];
+            cout << "PAYLOAD" << std::setbase(16) << (Word)payload << endl;
+            memory[payload] = (program_regs[dest_reg] & 0x00ff);
+            memory[payload + 1] = (program_regs[dest_reg]&0xff00) >> 8;
+            if ( payload == 0xFF00) {
+              cout << "Znak" << memory[payload] << endl;
+            }
             break;
           }
           case ADDR_REG_DIR_POM:{
             // zove se prekidna rutina
-            Byte dest_reg = (reg_descr & 0xf0) >> 4;
-            Byte payload_low = memory[program_regs[PC]++];
-            Byte payload_high = memory[program_regs[PC]++];
-            Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
-            Byte src_reg = reg_descr & 0x0f;
-            program_regs[dest_reg] = program_regs[src_reg] + payload;
+            
             break;
           }
           case ADDR_REG_INDIR_POM:{
+            Byte update = ((Word)addr_mode) >> 4;
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte payload_low = memory[program_regs[PC]++];
             Byte payload_high = memory[program_regs[PC]++];
             Offs payload = ((Word)payload_high) << 8 | (Word)payload_low;
             Byte src_reg = reg_descr & 0x0f;
-            memory[program_regs[dest_reg] + payload] = program_regs[src_reg];
+
+            if ( (Word)update == 0x01) program_regs[src_reg]--;
+            if ( (Word)update == 0x02) program_regs[src_reg]++;
+
+            if ( (Word)src_reg == 0x06) {
+              memory[program_regs[src_reg]-- + payload] = (program_regs[dest_reg] & 0x00ff);
+              memory[program_regs[src_reg] + payload] = (program_regs[dest_reg]&0xff00) >> 8;
+            }
+            else{
+              memory[program_regs[src_reg] + payload] = (program_regs[dest_reg] & 0x00ff);
+              memory[program_regs[src_reg] + payload + 1] = (program_regs[dest_reg]&0xff00) >> 8;
+            }
+            
+
+            if ( (Word)update == 0x03) program_regs[src_reg]--;
+            if ( (Word)update == 0x04) program_regs[src_reg]++;
             break;
          
           }
@@ -558,22 +869,41 @@ int Emulator::handle_op(Byte op_code){
            
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte src_reg = reg_descr & 0x0f;
-            cout << "REG" << program_regs[dest_reg] << endl;
-            program_regs[dest_reg] = program_regs[src_reg];
+            
+            program_regs[src_reg] = program_regs[dest_reg];
             break;
           }
           case ADDR_REG_INDIR:{
+            Byte update = (addr_mode & 0xf0) >> 4;
             Byte dest_reg = (reg_descr & 0xf0) >> 4;
             Byte src_reg = reg_descr & 0x0f;
-            memory[program_regs[dest_reg]] = program_regs[src_reg];
+          
+            if ( (Word)update == 0x01) program_regs[src_reg]--;
+            if ( (Word)update == 0x02) program_regs[src_reg]++;
+           
+            if ( (Word)src_reg == 0x06) {
+              cout << "PUSH" << endl;
+              memory[program_regs[src_reg]--] = (program_regs[dest_reg] & 0x00ff);
+              memory[program_regs[src_reg]] = (program_regs[dest_reg]&0xff00) >> 8;
+            }
+            else{
+              memory[program_regs[src_reg]] = (program_regs[dest_reg] & 0x00ff);
+              memory[program_regs[src_reg] + 1] = (program_regs[dest_reg]&0xff00) >> 8;
+            }
+            
+
+            if ( (Word)update == 0x03) program_regs[src_reg]--;
+            if ( (Word)update == 0x04) program_regs[src_reg]++;
             break;
           }
         }
         break;
       }
       default:{
-        cout << "UNDEFINED INSTR" << endl;
-        exit(-1);
+        cout << "Error" << endl;
+        Byte low_pc = memory[ISR_ERROR_STARTING_CODE];
+        Byte high_pc = memory[ISR_ERROR_STARTING_CODE+1];
+        program_regs[PC] = ((Word)high_pc) << 8 | low_pc;
       }
       
       }
